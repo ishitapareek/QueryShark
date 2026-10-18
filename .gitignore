@@ -24,24 +24,26 @@ wheels/
 .installed.cfg
 *.egg
 
-# Virtual environments
+# Virtual Environments
 venv/
-.venv/
 env/
 ENV/
-env.bak/
-venv.bak/
-
-# IDEs and editors
-.vscode/
-.idea/
-*.swp
-*.swo
+.venv/
 
 # Environment variables
 .env
 .env.local
 
-# Database local storage
-*.sqlite3
-*.db
+# IDE and Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Testing and Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Logs
+*.log
