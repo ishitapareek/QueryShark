@@ -75,7 +75,7 @@ except Exception:
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("Total Queries Tracked", summary_data["total_queries"] if summary_data else 0)
 col2.metric("Slow Queries (>100ms)", summary_data["slow_queries"] if summary_data else 0)
-col3.metric("Avg Latency", f"{summary_data['avg_duration_ms']} ms" if summary_data else "0 ms")
+col3.metric("Avg DB Execution", f"{summary_data['avg_duration_ms']} ms" if summary_data else "0 ms")
 col4.metric("Slow Query Ratio", f"{summary_data['slow_percentage']}%" if summary_data else "0%")
 
 st.divider()
@@ -219,7 +219,7 @@ with tab1:
             st.plotly_chart(fig_batch, use_container_width=True)
 
             # Table display
-            display_cols = ["Rank Badge", "statement_index", "duration_ms", "status", "rows_affected", "sql_text"]
+            display_cols = ["Rank Badge", "statement_index", "duration_ms", "total_elapsed_ms", "status", "rows_affected", "sql_text"]
             st.dataframe(
                 df_batch[display_cols].rename(columns={
                     "Rank Badge": "Rank",
@@ -289,8 +289,23 @@ with tab2:
 
                         res_c1, res_c2, res_c3 = st.columns(3)
                         res_c1.metric("Query ID", rec.get("queryID", "-"))
-                        res_c2.metric("Latency", f"{dur} ms")
-                        res_c3.metric("Rows Affected", exec_data.get("rows_affected", 0))
+                        db_duration = rec.get("duration_ms")
+                        total_elapsed = rec.get("total_elapsed_ms")
+
+                        with res_c2:
+                            st.metric(
+                                "DB Execution Time",
+                                f"{db_duration} ms"
+                                if db_duration is not None else "Unavailable"
+                            )
+
+                        with res_c3:
+                            st.metric(
+                                "Total Elapsed Time",
+                                f"{total_elapsed} ms"
+                                if total_elapsed is not None else "Unavailable"
+                            )
+                            res_c3.metric("Rows Affected", exec_data.get("rows_affected", 0))
 
                         # Display Query Results
                         results = exec_data.get("results")

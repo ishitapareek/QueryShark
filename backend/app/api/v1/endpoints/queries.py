@@ -1,3 +1,4 @@
+from fastapi import status
 from typing import Optional, List
 from fastapi import APIRouter, HTTPException, Query, UploadFile, File, Form
 from app.models.query_model import (
@@ -112,7 +113,17 @@ def get_queries(
     """
     Retrieves logged query runs with flexible ranking options and status filtering.
     """
-    base_query = "SELECT queryID, sql_text, current_schema, duration_ms, status, timestamp FROM QueryRuns"
+    base_query = """
+        SELECT
+            queryID,
+            sql_text,
+            current_schema,
+            duration_ms,
+            total_elapsed_ms,
+            status,
+            timestamp
+        FROM QueryRuns
+    """
     params = []
 
     if status and status.upper() != "ALL":
@@ -157,7 +168,7 @@ def get_top_slow_queries(limit: int = Query(10, ge=1, le=100)):
     Retrieves the top slowest queries that breached the SLA threshold (>100ms).
     """
     query = """
-    SELECT queryID, sql_text, current_schema, duration_ms, status, timestamp 
+    SELECT queryID, sql_text, current_schema, duration_ms, total_elapsed_ms, status, timestamp 
     FROM QueryRuns 
     WHERE status = 'SLOW' 
     ORDER BY duration_ms DESC 
