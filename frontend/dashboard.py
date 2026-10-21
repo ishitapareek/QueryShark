@@ -42,21 +42,36 @@ st.caption("Real-time database query telemetry, SLA threshold monitoring, and mu
 
 # Sidebar Controls
 st.sidebar.header("Global Settings & Filters")
-status_filter = st.sidebar.selectbox("Filter History by Status", ["ALL", "SLOW", "FAST"])
-history_rank = st.sidebar.selectbox(
-    "Rank History By",
-    [
-        ("Slowest First (Latency)", "duration_desc"),
-        ("Fastest First", "duration_asc"),
-        ("Most Recent First", "timestamp_desc"),
-        ("Oldest First", "timestamp_asc"),
-        ("Status (Slow First)", "status")
-    ],
-    format_func=lambda x: x[0]
-)[1]
-limit = st.sidebar.slider("Query Fetch Limit", 10, 500, 100)
-st.sidebar.divider()
-st.sidebar.info("**Slow Threshold:** Queries exceeding **100ms** are automatically flagged as **SLOW**.")
+
+# sidebar_status_filter = st.sidebar.selectbox(
+#     "Filter History by Status",
+#     ["ALL", "SLOW", "FAST"],
+#     key = "sidebar_status_filter"
+# )
+
+# sidebar_history_rank = st.sidebar.selectbox(
+#     "Rank History By",
+#     [
+#         ("Slowest First (Latency)", "duration_desc"),
+#         ("Fastest First", "duration_asc"),
+#         ("Most Recent First", "timestamp_desc"),
+#         ("Oldest First", "timestamp_asc"),
+#         ("Status (Slow First)", "status")
+#     ],
+#     format_func = lambda x: x[0],
+#     key = "sidebar_history_rank"
+# )[1]
+
+# limit = st.sidebar.slider(
+#     "Query Fetch Limit",
+#     10, 500, 100,
+#     key = "sidebar_query_fetch_limit"
+# )
+
+# st.sidebar.divider()
+st.sidebar.info("**Slow Threshold:** Queries exceeding **100ms**"
+                "are automatically flagged as **SLOW**."
+)
 
 # Fetch Summary Telemetry Metrics
 summary_data = None
@@ -326,89 +341,92 @@ with tab3:
     st.subheader("Query Telemetry History")
     st.write("Browse historically captured queries with custom ranking and filtering.")
 
+    if "history_records" not in st.session_state:
+        st.session_state["history_records"] = None
+
     with st.expander("Filter Query History", expanded = True):
-        col1, col2, col3 = st.columns(3)
+        with st.form("query_history_filter"):
+            col1, col2, col3 = st.columns(3)
 
-        with col1:
-            status_filter = st.selectbox(
-                "Status",
-                ["ALL", "SLOW", "FAST", "ERROR", "UNAVAILABLE"],
-                key = "history_status_filter"
-            )
+            with col1:
+                status_filter = st.selectbox(
+                    "Status",
+                    ["ALL", "SLOW", "FAST", "ERROR", "UNAVAILABLE"],
+                    key = "history_status_filter"
+                )
 
-            query_type_filter = st.selectbox(
-                "Query Type",
-                ["ALL", "SELECT", "INSERT", "UPDATE", "DELETE", "DDL", "OTHER"],
-                key = "history_type_filter"
-            )
+                query_type_filter = st.selectbox(
+                    "Query Type",
+                    ["ALL", "SELECT", "INSERT", "UPDATE", "DELETE", "DDL", "OTHER"],
+                    key = "history_type_filter"
+                )
 
-        with col2:
-            schema_filter = st.text_input(
-                "Database Schema",
-                placeholder = "e.g. my_database",
-                key = "history_schema_filter"
-            )
+            with col2:
+                schema_filter = st.text_input(
+                    "Database Schema",
+                    placeholder = "e.g. my_database",
+                    key = "history_schema_filter"
+                )
 
-            min_duration = st.number_input(
-                "Minimum DB Duration (ms)",
-                min_value = 0.0,
-                value = 0.0,
-                step = 1.0,
-                key = "history_min_duration"
-            )
+                min_duration = st.number_input(
+                    "Minimum DB Duration (ms)",
+                    min_value = 0.0,
+                    value = 0.0,
+                    step = 1.0,
+                    key = "history_min_duration"
+                )
 
-        with col3:
-            max_duration = st.number_input(
-                "Maximum DB Duration (ms)",
-                min_value = 0.0,
-                value = 10000.0,
-                step = 10.0,
-                key = "history_max_duration"
-            )
+            with col3:
+                max_duration = st.number_input(
+                    "Maximum DB Duration (ms)",
+                    min_value = 0.0,
+                    value = 0.0,
+                    step = 10.0,
+                    key = "history_max_duration"
+                )
 
-            history_rank = st.selectbox(
-                "Sort By",
-                [
-                    ("Newest First", "timestamp_desc"),
-                    ("Oldest First", "timestamp_asc"),
-                    ("Slowest First", "duration_desc"),
-                    ("Fastest First", "duration_asc"),
-                ],
-                format_func = lambda x: x[0],
-                key = "history_sort"
-            )[1] 
-        
-        date_col1, date_col2 = st.columns(2)
+                history_rank = st.selectbox(
+                    "Sort By",
+                    [
+                        ("Newest First", "timestamp_desc"),
+                        ("Oldest First", "timestamp_asc"),
+                        ("Slowest First", "duration_desc"),
+                        ("Fastest First", "duration_asc"),
+                    ],
+                    format_func = lambda x: x[0],
+                    key = "history_sort"
+                )[1] 
+            
+            date_col1, date_col2 = st.columns(2)
 
-        with date_col1:
-            start_date = st.date_input(
-            "Start Date",
-            value = None,
-            key = "history_start_date"
-        )
-
-        with date_col2:
-            end_date = st.date_input(
-                "End Date",
+            with date_col1:
+                start_date = st.date_input(
+                "Start Date",
                 value = None,
-                key = "history_end_date"
+                key = "history_start_date"
             )
 
-            history_limit = st.slider(
-                "Maximum Records to Display",
-                min_value = 10,
-                max_value = 500,
-                value = 100,
-                step = 10,
-                key = "history_limit"
-            )
+            with date_col2:
+                end_date = st.date_input(
+                    "End Date",
+                    value = None,
+                    key = "history_end_date"
+                )
 
-            apply_filters = st.button(
-                "Apply Filters",
-                type = "primary",
-                key = "apply_history_filters"
-            )
-        
+                history_limit = st.slider(
+                    "Maximum Records to Display",
+                    min_value = 10,
+                    max_value = 500,
+                    value = 100,
+                    step = 10,
+                    key = "history_limit"
+                )
+
+                apply_filters = st.form_submit_button(
+                    "Apply Filters",
+                    type="primary"
+                )
+
 
     params = {"limit": history_limit, "rank_by": history_rank}
 
@@ -433,51 +451,83 @@ with tab3:
     if end_date:
         params["end_date"] = f"{end_date.isoformat()} 23:59:59"
 
-    try:
-        res = requests.get(f"{API_BASE_URL}/queries/", params=params, timeout=5)
-        if res.status_code == 200 and res.json():
-            df_history = pd.DataFrame(res.json())
-
-            # Highlight status column
-            def highlight_status(val):
-                if val == 'SLOW':
-                    return 'background-color: #ffcdd2; color: #b71c1c; font-weight: bold;'
-                return 'background-color: #c8e6c9; color: #1b5e20; font-weight: bold;'
-
-            st.dataframe(
-                df_history.style.map(highlight_status, subset=['status']),
-                use_container_width=True
+    if apply_filters:
+        try:
+            res = requests.get(
+                f"{API_BASE_URL}/queries/",
+                params = params,
+                timeout = 5
             )
 
-            # Scatter Timeline Chart
-            fig_hist = px.scatter(
-                df_history,
-                x='timestamp',
-                y='duration_ms',
-                color='status',
-                color_discrete_map={'FAST': '#28a745', 'SLOW': '#dc3545'},
-                hover_data=['sql_text', 'queryID', 'current_schema'],
-                title=f"Query Execution Timeline (Ranked by {history_rank})"
-            )
-            fig_hist.add_hline(y=100.0, line_dash="dash", line_color="red", annotation_text="100ms Threshold")
-            st.plotly_chart(fig_hist, use_container_width=True)
-        else:
-            st.info("No query logs matching current filters found.")
-    except Exception as err:
-        st.error(f"Error fetching query history: {err}")
+            if res.status_code == 200:
+                st.session_state["history_records"] = res.json()
+            else:
+                st.error(
+                    f"History request failed: "
+                    f"{res.status_code} - {res.text}"
+                )
 
-    # CSV Download Button
+        except requests.RequestException as err:
+            st.error(f"Error fetching query history: {err}")
+
+    history_records = st.session_state["history_records"]
+
+    if history_records:
+        df_history = pd.DataFrame(history_records)
+
+        def highlight_status(val):
+            if val == "SLOW":
+                return "background-color: #ffcdd2; color: #b71c1c; font-weight: bold;"
+            elif val == "ERROR":
+                return "background-color: #ffe0b2; color: #e65100; font-weight: bold;"
+            return "background-color: #c8e6c9; color: #1b5e20; font-weight: bold;"
+
+        st.dataframe(
+            df_history.style.map(highlight_status, subset = ["status"]),
+            use_container_width = True
+        )
+
+        fig_hist = px.scatter(
+            df_history,
+            x = "timestamp",
+            y = "duration_ms",
+            color = "status",
+            color_discrete_map = {
+                "FAST": "#28a745",
+                "SLOW": "#dc3545",
+                "ERROR": "#ffc107"
+            },
+            hover_data = ["sql_text", "queryID", "current_schema"],
+            title = f"Query Execution Timeline (Ranked by {history_rank})"
+        )
+
+        fig_hist.add_hline(
+            y = 100.0,
+            line_dash = "dash",
+            line_color = "red",
+            annotation_text = "100ms Threshold"
+        )
+
+        st.plotly_chart(fig_hist, use_container_width = True)
+
+    elif history_records is not None:
+        st.info("No query logs matching the applied filters.")
+
+    else:
+        st.info("Choose your filters and click Apply Filters.")
+
     try:
         csv_res = requests.get(f"{API_BASE_URL}/export/csv", timeout=5)
         if csv_res.status_code == 200:
             st.download_button(
-                label="Download Historical Report (CSV)",
-                data=csv_res.content,
-                file_name="queryshark_telemetry_report.csv",
-                mime="text/csv"
+                label = "Download Historical Report (CSV)",
+                data = df_history.to_csv(index = False).encode("utf-8"),
+                file_name = "queryshark_telemetry_report.csv",
+                mime = "text/csv"
             )
+
     except Exception:
-        st.button("Download Historical Report (CSV)", disabled=True)
+        st.button("Download Historical Report (CSV)", disabled = True)
 
 # -------------------------------------------------------------
 # TAB 4: Top Slow Queries (Hall of Shame)
