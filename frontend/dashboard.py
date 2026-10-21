@@ -37,26 +37,26 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🦈 QueryShark — Query Performance & Profiling Engine")
+st.title("QueryShark — Query Performance & Profiling Engine")
 st.caption("Real-time database query telemetry, SLA threshold monitoring, and multi-query batch ranking")
 
 # Sidebar Controls
-st.sidebar.header("⚙️ Global Settings & Filters")
+st.sidebar.header("Global Settings & Filters")
 status_filter = st.sidebar.selectbox("Filter History by Status", ["ALL", "SLOW", "FAST"])
 history_rank = st.sidebar.selectbox(
     "Rank History By",
     [
-        ("⏱️ Slowest First (Latency)", "duration_desc"),
-        ("⚡ Fastest First", "duration_asc"),
-        ("🕒 Most Recent First", "timestamp_desc"),
-        ("⏳ Oldest First", "timestamp_asc"),
-        ("⚠️ Status (Slow First)", "status")
+        ("Slowest First (Latency)", "duration_desc"),
+        ("Fastest First", "duration_asc"),
+        ("Most Recent First", "timestamp_desc"),
+        ("Oldest First", "timestamp_asc"),
+        ("Status (Slow First)", "status")
     ],
     format_func=lambda x: x[0]
 )[1]
 limit = st.sidebar.slider("Query Fetch Limit", 10, 500, 100)
 st.sidebar.divider()
-st.sidebar.info("💡 **Slow Threshold:** Queries exceeding **100ms** are automatically flagged as **SLOW**.")
+st.sidebar.info("**Slow Threshold:** Queries exceeding **100ms** are automatically flagged as **SLOW**.")
 
 # Fetch Summary Telemetry Metrics
 summary_data = None
@@ -69,12 +69,12 @@ try:
     else:
         st.sidebar.warning(f"Backend API status: {summary_res.status_code}")
 except Exception:
-    st.sidebar.error("⚠️ Backend API Offline. Ensure FastAPI is running on `http://localhost:8000`.")
+    st.sidebar.error("Backend API Offline. Ensure FastAPI is running on `http://localhost:8000`.")
 
 # Top Telemetry Cards
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("Total Queries Tracked", summary_data["total_queries"] if summary_data else 0)
-col2.metric("Slow Queries (>100ms)", summary_data["slow_queries"] if summary_data else 0)
+col2.metric("Slow Queries (> 100ms)", summary_data["slow_queries"] if summary_data else 0)
 col3.metric("Avg DB Execution", f"{summary_data['avg_duration_ms']} ms" if summary_data else "0 ms")
 col4.metric("Slow Query Ratio", f"{summary_data['slow_percentage']}%" if summary_data else "0%")
 
@@ -82,17 +82,17 @@ st.divider()
 
 # Navigation Tabs
 tab1, tab2, tab3, tab4 = st.tabs([
-    "📁 Upload .SQL File & Rank",
-    "⚡ Single Query Runner",
-    "📊 Query History & Analytics",
-    "🔥 Slow Query Hall of Shame"
+    "Upload .SQL File & Rank",
+    "Query Runner",
+    "Query History & Analytics",
+    "Slow Query Monitor"
 ])
 
 # -------------------------------------------------------------
 # TAB 1: Upload .SQL File & Rank
 # -------------------------------------------------------------
 with tab1:
-    st.subheader("📁 Upload SQL File — Batch Execution & Bottleneck Ranking")
+    st.subheader("Upload SQL File — Batch Execution & Bottleneck Ranking")
     st.write(
         "Upload a `.sql` file containing multiple SQL statements. The engine will parse each statement, "
         "execute it via the interceptor, measure precise latency, evaluate SLA thresholds, and rank each query."
@@ -117,16 +117,16 @@ with tab1:
         ranking_choice = st.radio(
             "Options to Rank Queries:",
             [
-                ("⏱️ Slowest to Fastest (Bottlenecks)", "duration_desc"),
-                ("⚡ Fastest to Slowest", "duration_asc"),
-                ("📜 Execution Order (File Sequence)", "execution_order"),
-                ("⚠️ Status (Slow & Error First)", "status"),
-                ("📊 Rows Affected (Highest First)", "rows_affected_desc")
+                ("Slowest to Fastest (Bottlenecks)", "duration_desc"),
+                ("Fastest to Slowest", "duration_asc"),
+                ("Execution Order (File Sequence)", "execution_order"),
+                ("Status (Slow & Error First)", "status"),
+                ("Rows Affected (Highest First)", "rows_affected_desc")
             ],
             format_func=lambda x: x[0]
         )[1]
 
-    execute_btn = st.button("🚀 Execute & Rank Statements", type="primary")
+    execute_btn = st.button("Execute & Rank Statements", type="primary")
 
     if execute_btn:
         if not uploaded_file and not pasted_script.strip():
@@ -161,24 +161,24 @@ with tab1:
         summary = batch_data.get("summary", {})
         statements = batch_data.get("statements", [])
 
-        st.subheader("📊 Batch Summary & Performance Aggregates")
+        st.subheader("Batch Summary & Performance Aggregates")
         b_col1, b_col2, b_col3, b_col4, b_col5 = st.columns(5)
         b_col1.metric("Statements Executed", summary.get("total_statements", 0))
-        b_col2.metric("Slow Statements (>100ms)", summary.get("slow_statements", 0))
+        b_col2.metric("Slow Statements (> 100ms)", summary.get("slow_statements", 0))
         b_col3.metric("Errors / Failures", summary.get("failed_statements", 0))
         b_col4.metric("Avg Latency", f"{summary.get('avg_duration_ms', 0)} ms")
         b_col5.metric("Max Latency (Peak)", f"{summary.get('max_duration_ms', 0)} ms")
 
         # Interactive Ranking Switcher (allows instant re-ranking without re-running!)
-        st.markdown("#### 🎯 Interactive Statement Ranking")
+        st.markdown("#### Interactive Statement Ranking")
         rerank_opt = st.selectbox(
             "Change View Ranking:",
             [
-                ("⏱️ Slowest to Fastest (Bottleneck Priority)", "duration_desc"),
-                ("⚡ Fastest to Slowest", "duration_asc"),
-                ("📜 File Execution Order", "execution_order"),
-                ("⚠️ Status Priority (Slow/Error First)", "status"),
-                ("📊 Rows Affected (Descending)", "rows_affected_desc")
+                ("Slowest to Fastest (Bottleneck Priority)", "duration_desc"),
+                ("Fastest to Slowest", "duration_asc"),
+                ("File Execution Order", "execution_order"),
+                ("Status Priority (Slow/Error First)", "status"),
+                ("Rows Affected (Descending)", "rows_affected_desc")
             ],
             format_func=lambda x: x[0]
         )[1]
@@ -201,7 +201,7 @@ with tab1:
 
             # Assign 1..N rank badges
             df_batch["Rank"] = range(1, len(df_batch) + 1)
-            rank_badges = {1: "🥇 #1", 2: "🥈 #2", 3: "🥉 #3"}
+            rank_badges = {1: "#1", 2: "#2", 3: "#3"}
             df_batch["Rank Badge"] = df_batch["Rank"].apply(lambda r: rank_badges.get(r, f"#{r}"))
 
             # Latency Bar Chart
@@ -232,7 +232,7 @@ with tab1:
                 use_container_width=True
             )
 
-            with st.expander("🔍 Deep-Dive: Statement Inspection & Errors"):
+            with st.expander("Deep-Dive: Statement Inspection & Errors"):
                 for _, row in df_batch.iterrows():
                     status_color = "red" if row["status"] == "SLOW" else ("orange" if row["status"] == "ERROR" else "green")
                     st.markdown(
@@ -247,10 +247,10 @@ with tab1:
                     st.divider()
 
 # -------------------------------------------------------------
-# TAB 2: Single Query Runner
+# TAB 2: Query Runner
 # -------------------------------------------------------------
 with tab2:
-    st.subheader("⚡ Single Query Runner")
+    st.subheader("Query Runner")
     st.write("Execute an individual SQL command to test immediate interception latency, status, and output.")
 
     col_sq1, col_sq2 = st.columns([3, 1])
@@ -263,7 +263,7 @@ with tab2:
         )
     with col_sq2:
         single_schema = st.text_input("Target Schema", "default", key="single_schema_input")
-        run_single_btn = st.button("▶️ Execute Command", type="primary", use_container_width=True)
+        run_single_btn = st.button("Execute Command", type="primary", use_container_width=True)
 
     if run_single_btn:
         if not single_sql.strip():
@@ -281,11 +281,11 @@ with tab2:
                         err = exec_data.get("error")
 
                         if err:
-                            st.error(f"❌ Execution Error: {err}")
+                            st.error(f"Execution Error: {err}")
                         elif st_status == "SLOW":
-                            st.error(f"⚠️ Query Executed in **{dur} ms** — Marked as **SLOW** (>100ms threshold breach)!")
+                            st.error(f"Query Executed in **{dur} ms** — Marked as **SLOW** (> 100ms threshold breach)!")
                         else:
-                            st.success(f"✅ Query Executed in **{dur} ms** — Marked as **FAST**!")
+                            st.success(f"Query Executed in **{dur} ms** — Marked as **FAST**!")
 
                         res_c1, res_c2, res_c3 = st.columns(3)
                         res_c1.metric("Query ID", rec.get("queryID", "-"))
@@ -323,12 +323,115 @@ with tab2:
 # TAB 3: Query History & Analytics
 # -------------------------------------------------------------
 with tab3:
-    st.subheader("📊 Query Telemetry History")
+    st.subheader("Query Telemetry History")
     st.write("Browse historically captured queries with custom ranking and filtering.")
 
-    params = {"limit": limit, "rank_by": history_rank}
+    with st.expander("Filter Query History", expanded = True):
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            status_filter = st.selectbox(
+                "Status",
+                ["ALL", "SLOW", "FAST", "ERROR", "UNAVAILABLE"],
+                key = "history_status_filter"
+            )
+
+            query_type_filter = st.selectbox(
+                "Query Type",
+                ["ALL", "SELECT", "INSERT", "UPDATE", "DELETE", "DDL", "OTHER"],
+                key = "history_type_filter"
+            )
+
+        with col2:
+            schema_filter = st.text_input(
+                "Database Schema",
+                placeholder = "e.g. my_database",
+                key = "history_schema_filter"
+            )
+
+            min_duration = st.number_input(
+                "Minimum DB Duration (ms)",
+                min_value = 0.0,
+                value = 0.0,
+                step = 1.0,
+                key = "history_min_duration"
+            )
+
+        with col3:
+            max_duration = st.number_input(
+                "Maximum DB Duration (ms)",
+                min_value = 0.0,
+                value = 10000.0,
+                step = 10.0,
+                key = "history_max_duration"
+            )
+
+            history_rank = st.selectbox(
+                "Sort By",
+                [
+                    ("Newest First", "timestamp_desc"),
+                    ("Oldest First", "timestamp_asc"),
+                    ("Slowest First", "duration_desc"),
+                    ("Fastest First", "duration_asc"),
+                ],
+                format_func = lambda x: x[0],
+                key = "history_sort"
+            )[1] 
+        
+        date_col1, date_col2 = st.columns(2)
+
+        with date_col1:
+            start_date = st.date_input(
+            "Start Date",
+            value = None,
+            key = "history_start_date"
+        )
+
+        with date_col2:
+            end_date = st.date_input(
+                "End Date",
+                value = None,
+                key = "history_end_date"
+            )
+
+            history_limit = st.slider(
+                "Maximum Records to Display",
+                min_value = 10,
+                max_value = 500,
+                value = 100,
+                step = 10,
+                key = "history_limit"
+            )
+
+            apply_filters = st.button(
+                "Apply Filters",
+                type = "primary",
+                key = "apply_history_filters"
+            )
+        
+
+    params = {"limit": history_limit, "rank_by": history_rank}
+
     if status_filter != "ALL":
         params["status"] = status_filter
+
+    if query_type_filter != "ALL":
+        params["query_type"] = query_type_filter
+
+    if schema_filter.strip():
+        params["schema_name"] = schema_filter.strip()
+
+    if min_duration > 0:
+        params["min_duration_ms"] = min_duration
+
+    if max_duration > 0:
+        params["max_duration_ms"] = max_duration
+
+    if start_date:
+        params["start_date"] = f"{start_date.isoformat()} 00:00:00"
+
+    if end_date:
+        params["end_date"] = f"{end_date.isoformat()} 23:59:59"
 
     try:
         res = requests.get(f"{API_BASE_URL}/queries/", params=params, timeout=5)
@@ -368,19 +471,19 @@ with tab3:
         csv_res = requests.get(f"{API_BASE_URL}/export/csv", timeout=5)
         if csv_res.status_code == 200:
             st.download_button(
-                label="📥 Download Historical Report (CSV)",
+                label="Download Historical Report (CSV)",
                 data=csv_res.content,
                 file_name="queryshark_telemetry_report.csv",
                 mime="text/csv"
             )
     except Exception:
-        st.button("📥 Download Historical Report (CSV)", disabled=True)
+        st.button("Download Historical Report (CSV)", disabled=True)
 
 # -------------------------------------------------------------
 # TAB 4: Top Slow Queries (Hall of Shame)
 # -------------------------------------------------------------
 with tab4:
-    st.subheader("🔥 Slow Query Bottlenecks (Top 10 Latency Outliers)")
+    st.subheader("Slow Query Bottlenecks (Top 10 Latency Outliers)")
     st.write("Identifies top queries that consistently violated the 100ms performance threshold.")
 
     try:
@@ -403,6 +506,6 @@ with tab4:
 
             st.table(df_slow[['queryID', 'duration_ms', 'status', 'sql_text', 'timestamp']])
         else:
-            st.info("No slow queries (>100ms) recorded yet. System running smoothly!")
+            st.info("No slow queries (> 100ms) recorded yet. System running smoothly!")
     except Exception as err:
         st.error(f"Error loading slow queries: {err}")
