@@ -41,7 +41,7 @@ st.title("QueryShark — Query Performance & Profiling Engine")
 st.caption("Real-time database query telemetry, SLA threshold monitoring, and multi-query batch ranking")
 
 # Sidebar Controls
-st.sidebar.header("Global Settings & Filters")
+# st.sidebar.header("Global Settings & Filters")
 
 # sidebar_status_filter = st.sidebar.selectbox(
 #     "Filter History by Status",
@@ -199,6 +199,9 @@ with tab1:
         )[1]
 
         # In-memory dynamic re-ranking for instantaneous feedback
+        # NOTE: This in-memory re-rank mirrors the logic in SQLParserService.rank_statements() (backend/app/services/sql_parser.py)
+        # If ranking logic changes in the backend then this block needs to be updated to to match.
+
         df_batch = pd.DataFrame(statements)
         if not df_batch.empty:
             if rerank_opt == "duration_desc":
@@ -302,7 +305,7 @@ with tab2:
                         else:
                             st.success(f"Query Executed in **{dur} ms** — Marked as **FAST**!")
 
-                        res_c1, res_c2, res_c3 = st.columns(3)
+                        res_c1, res_c2, res_c3, res_c4 = st.columns(4)
                         res_c1.metric("Query ID", rec.get("queryID", "-"))
                         db_duration = rec.get("duration_ms")
                         total_elapsed = rec.get("total_elapsed_ms")
@@ -320,7 +323,9 @@ with tab2:
                                 f"{total_elapsed} ms"
                                 if total_elapsed is not None else "Unavailable"
                             )
-                            res_c3.metric("Rows Affected", exec_data.get("rows_affected", 0))
+
+                        with res_c4:
+                            st.metric("Rows Affected", exec_data.get("rows_affected", 0))
 
                         # Display Query Results
                         results = exec_data.get("results")
@@ -510,25 +515,27 @@ with tab3:
 
         st.plotly_chart(fig_hist, use_container_width = True)
 
+        # try:
+            # csv_res = requests.get(f"{API_BASE_URL}/export/csv", timeout=5)
+            # if csv_res.status_code == 200:
+
+        st.download_button(
+            label = "Download Historical Report (CSV)",
+            data = df_history.to_csv(index = False).encode("utf-8"),
+            # data = csv_res.content,
+            file_name = "queryshark_telemetry_report.csv",
+            mime = "text/csv"
+        )
+
+        # except Exception:
+        #     st.button("Download Historical Report (CSV)", disabled = True)
+
     elif history_records is not None:
         st.info("No query logs matching the applied filters.")
 
     else:
         st.info("Choose your filters and click Apply Filters.")
-
-    try:
-        csv_res = requests.get(f"{API_BASE_URL}/export/csv", timeout=5)
-        if csv_res.status_code == 200:
-            st.download_button(
-                label = "Download Historical Report (CSV)",
-                data = df_history.to_csv(index = False).encode("utf-8"),
-                file_name = "queryshark_telemetry_report.csv",
-                mime = "text/csv"
-            )
-
-    except Exception:
-        st.button("Download Historical Report (CSV)", disabled = True)
-
+        
 # -------------------------------------------------------------
 # TAB 4: Top Slow Queries (Hall of Shame)
 # -------------------------------------------------------------

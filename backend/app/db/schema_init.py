@@ -1,4 +1,3 @@
-from mysql.connector import cursor_cext
 import logging
 from app.db.connection import DatabasePool
 

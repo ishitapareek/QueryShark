@@ -236,17 +236,13 @@ class QueryInterceptorService:
             
             st_status = record.get("status", "UNAVAILABLE")
 
-            if error:
-                st_status = "ERROR"
+            if st_status == "ERROR":
                 error_count += 1
-            elif dur is None:
-                st_status = "UNAVAILABLE"
+            elif st_status == "UNAVAILABLE":
                 unavailable_count += 1
-            elif dur > settings.SLOW_QUERY_THRESHOLD_MS:
-                st_status = "SLOW"
+            elif st_status == "SLOW":
                 slow_count += 1
             else:
-                st_status = "FAST"
                 fast_count += 1
 
             stmt_result = {

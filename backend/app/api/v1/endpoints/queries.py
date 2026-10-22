@@ -1,4 +1,3 @@
-from fastapi import status
 from typing import Optional, List
 from fastapi import APIRouter, HTTPException, Query, UploadFile, File, Form
 from app.models.query_model import (
@@ -136,11 +135,9 @@ def get_queries(
     params = []
 
     if status and status.upper() != "ALL":
-        allowed_statuses = {"FAST", "SLOW", "ERROR", "UNAVAILABLE"}
-        status_value = status.upper()
-        
-        conditions.append("status = %s")
-        params.append(status.upper())
+        if status.upper() in {"FAST", "SLOW", "ERROR", "UNAVAILABLE"}:
+            conditions.append("status = %s")
+            params.append(status.upper())
 
     # Date/time filters
     if start_date:
@@ -204,21 +201,23 @@ def get_queries(
 
     # Determine sorting order based on rank_by or backward-compatible sort_slowest
     if sort_slowest:
-        if sort_slowest:
-            base_query += " ORDER BY duration_ms DESC, queryID DESC"
-        else:
-            base_query += " ORDER BY timestamp DESC, queryID DESC"
+        base_query += " ORDER BY duration_ms DESC, queryID DESC"
         
     elif rank_by == QueryRankingOption.DURATION_DESC:
         base_query += " ORDER BY duration_ms DESC, queryID DESC"
+
     elif rank_by == QueryRankingOption.DURATION_ASC:
         base_query += " ORDER BY duration_ms ASC, queryID DESC"
+
     elif rank_by == QueryRankingOption.TIMESTAMP_DESC:
         base_query += " ORDER BY timestamp DESC, queryID DESC"
+
     elif rank_by == QueryRankingOption.TIMESTAMP_ASC:
         base_query += " ORDER BY timestamp ASC, queryID ASC"
+
     elif rank_by == QueryRankingOption.STATUS:
         base_query += " ORDER BY status DESC, timestamp DESC, queryID DESC"
+
     else:
         base_query += " ORDER BY timestamp DESC, queryID DESC"
 
@@ -287,6 +286,22 @@ def get_summary_stats():
         "slow_percentage": pct
     }
 
+
+# NOTE: This endpoint is fully implemented but NOT yet wired to the dashboard.
+# It queries the internal performance_schema database directly — separate from the QueryRuns table that QueryShark manages
+#
+# Unlike QueryRuns (which logs individual runs intercepted by QueryShark),
+# performance_schema aggregates ALL queries ever executed on the MySQL server,
+# grouped by normalized query digest (e.g. "SELECT * FROM users WHERE id = ?").
+#
+# This makes it useful for identifying:
+#   - Query patterns that are slow in aggregate (high total latency)
+#   - Queries that run frequently with high row examination counts
+#   - Server-wide bottlenecks beyond what QueryShark intercepts
+#
+# TODO: Add a "Deep Engine Analytics" tab in dashboard.py that calls:
+#   GET /api/v1/queries/performance-schema?limit=10
+# and displays top_digests in a ranked table/chart alongside QueryRuns data.
 @router.get("/performance-schema")
 def get_performance_schema_metrics(limit: int = Query(10, ge=1, le=50)):
     """
