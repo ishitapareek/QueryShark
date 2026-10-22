@@ -11,12 +11,12 @@ def export_queries_csv():
     def iter_csv():
         output = io.StringIO()
         writer = csv.writer(output)
-        writer.writerow(["Query ID", "SQL Query", "Schema", "Duration (ms)", "Status", "Timestamp"])
+        writer.writerow(["Query ID", "SQL Query", "Schema", "Duration (ms)", "Total Elapsed (ms)","Status", "Timestamp"])
         yield output.getvalue()
         output.seek(0)
         output.truncate(0)
 
-        query = "SELECT queryID, sql_text, current_schema, duration_ms, status, timestamp FROM QueryRuns ORDER BY timestamp DESC"
+        query = "SELECT queryID, sql_text, current_schema, duration_ms, total_elapsed_ms, status, timestamp FROM QueryRuns ORDER BY timestamp DESC"
         with DatabasePool.get_connection() as conn:
             cursor = conn.cursor(dictionary=True)
             cursor.execute(query)
@@ -26,6 +26,7 @@ def export_queries_csv():
                     row["sql_text"],
                     row["current_schema"],
                     row["duration_ms"],
+                    row["total_elapsed_ms"],
                     row["status"],
                     row["timestamp"].strftime("%Y-%m-%d %H:%M:%S")
                 ])

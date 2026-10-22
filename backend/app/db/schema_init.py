@@ -8,7 +8,8 @@ CREATE TABLE IF NOT EXISTS QueryRuns (
     queryID INT AUTO_INCREMENT PRIMARY KEY,
     sql_text TEXT NOT NULL,
     current_schema VARCHAR(100) DEFAULT 'default',
-    duration_ms FLOAT NOT NULL,
+    duration_ms FLOAT NULL,
+    total_elapsed_ms FLOAT NULL,
     status ENUM('FAST', 'SLOW') NOT NULL,
     timestamp DATETIME NOT NULL,
     INDEX idx_status_time (status, timestamp),
@@ -28,6 +29,46 @@ def init_db():
         cursor = conn.cursor()
         try:
             cursor.execute(CREATE_QUERYRUNS_TABLE)
+            
+            # Add total_elapsed_ms to existing installations.
+            cursor.execute(
+                "SHOW COLUMNS FROM QueryRuns LIKE 'total_elapsed_ms'"
+            )
+            if cursor.fetchone() is None:
+                cursor.execute("""
+                    ALTER TABLE QueryRuns
+                    ADD COLUMN total_elapsed_ms FLOAT NULL
+                """)
+
+            # Allow missing database-side timings.
+            cursor.execute(
+                "SHOW COLUMNS FROM QueryRuns LIKE 'duration_ms'"
+            )
+            duration_column = cursor.fetchone()
+
+            if duration_column and duration_column[2] == "NO":
+                cursor.execute("""
+                    ALTER TABLE QueryRuns
+                    MODIFY COLUMN duration_ms FLOAT NULL
+                """)
+
+            # Preserve query errors and unavailable measurements separately.
+            cursor.execute(
+                "SHOW COLUMNS FROM QueryRuns LIKE 'status'"
+            )
+            status_column = cursor.fetchone()
+
+            if status_column:
+                status_type = status_column[1].upper()
+
+                if "'ERROR'" not in status_type or "'UNAVAILABLE'" not in status_type:
+                    cursor.execute("""
+                        ALTER TABLE QueryRuns
+                        MODIFY COLUMN status
+                        ENUM('FAST', 'SLOW', 'ERROR', 'UNAVAILABLE')
+                        NOT NULL
+                    """)
+
             try:
                 cursor.execute(ENABLE_PERFORMANCE_SCHEMA)
             except Exception as pe:

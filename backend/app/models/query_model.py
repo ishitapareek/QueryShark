@@ -33,7 +33,8 @@ class QueryRunRecord(BaseModel):
     queryID: int
     sql_text: str
     current_schema: str
-    duration_ms: float
+    duration_ms: Optional[float] = None
+    total_elapsed_ms: Optional[float] = None    
     status: str
     timestamp: datetime
 
@@ -46,15 +47,16 @@ class QueryExecuteResponse(BaseModel):
 
 class BatchStatementResult(BaseModel):
     """Execution and ranking metrics for an individual statement within a .sql file or script."""
-    rank: int = Field(..., description="Assigned rank based on chosen ranking criteria")
-    statement_index: int = Field(..., description="Sequential index of the statement in the original script")
-    sql_text: str = Field(..., description="The executed SQL statement")
-    duration_ms: float = Field(..., description="Execution latency in milliseconds")
-    status: str = Field(..., description="FAST, SLOW, or ERROR")
-    rows_affected: int = Field(default=0, description="Number of rows modified or retrieved")
+    rank: int = Field(default = 0)
+    statement_index: int
+    sql_text: str
+    duration_ms: float
+    total_elapsed_ms: float
+    status: str
+    rows_affected: int = 0
     error: Optional[str] = Field(default=None, description="Error message if execution failed")
-    timestamp: datetime = Field(default_factory=datetime.now, description="Timestamp of execution")
-    queryID: Optional[int] = Field(default=None, description="Primary key record in QueryRuns table")
+    timestamp: datetime = Field(default_factory=datetime.now)
+    queryID: Optional[int] = None
 
 class BatchExecutionSummary(BaseModel):
     """Statistical summary across all statements executed in a batch/file."""
@@ -68,6 +70,9 @@ class BatchExecutionSummary(BaseModel):
     max_duration_ms: float
     min_duration_ms: float
     slow_percentage: float
+    unavailable_statements: int
+    total_elapsed_ms: float
+    avg_total_elapsed_ms: float
 
 class BatchQueryExecuteResponse(BaseModel):
     """Complete response payload for .sql file upload and batch execution with ranking."""

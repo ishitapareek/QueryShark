@@ -37,7 +37,8 @@ class DatabasePool:
             yield connection
         finally:
             connection.close()
-
+            
+# not currently used
 def get_db():
     with DatabasePool.get_connection() as conn:
         yield conn
