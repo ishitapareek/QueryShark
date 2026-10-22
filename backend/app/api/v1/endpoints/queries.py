@@ -107,42 +107,125 @@ def get_queries(
         QueryRankingOption.DURATION_DESC,
         description="Option to rank/order query records"
     ),
-    sort_slowest: Optional[bool] = Query(None, description="Legacy parameter for backward compatibility")
+    sort_slowest: Optional[bool] = Query(None, description="Legacy parameter for backward compatibility"),
+
+    start_date: Optional[str] = Query(None, description="Start date/time: YYYY-MM-DD or YYYY-MM-DD HH:MM:SS"),
+    end_date: Optional[str] = Query(None, description="End date/time: YYYY-MM-DD or YYYY-MM-DD HH:MM:SS"),
+    min_duration_ms: Optional[float] = Query(None, ge=0),
+    max_duration_ms: Optional[float] = Query(None, ge=0),
+    schema_name: Optional[str] = Query(None),
+    query_type: Optional[str] = Query(None, description="SELECT, INSERT, UPDATE, DELETE, DDL, OTHER"),
 ):
     """
     Retrieves logged query runs with flexible ranking options and status filtering.
     """
-    base_query = "SELECT queryID, sql_text, current_schema, duration_ms, status, timestamp FROM QueryRuns"
+    base_query = """
+        SELECT
+            queryID,
+            sql_text,
+            current_schema,
+            duration_ms,
+            total_elapsed_ms,
+            status,
+            timestamp
+        FROM QueryRuns
+    """
+
+    conditions = []
     params = []
 
     if status and status.upper() != "ALL":
-        base_query += " WHERE status = %s"
-        params.append(status.upper())
+        if status.upper() in {"FAST", "SLOW", "ERROR", "UNAVAILABLE"}:
+            conditions.append("status = %s")
+            params.append(status.upper())
+
+    # Date/time filters
+    if start_date:
+        conditions.append("timestamp >= %s")
+        params.append(start_date)
+
+    if end_date:
+        conditions.append("timestamp <= %s")
+        params.append(end_date)
+
+    # Database execution duration filters (NOT total elapsed time)
+    if min_duration_ms:
+        conditions.append("duration_ms >= %s")
+        params.append(min_duration_ms)
+
+    if max_duration_ms:
+        conditions.append("duration_ms <= %s")
+        params.append(max_duration_ms)
+
+    # Schema filter
+    if schema_name and schema_name.strip():
+        conditions.append("current_schema = %s")
+        params.append(schema_name.strip())
+
+    # SQL type filter
+    if query_type and query_type.upper() != "ALL":
+        query_type_value = query_type.upper()
+
+        if query_type_value in {"SELECT", "INSERT", "UPDATE", "DELETE"}:
+            conditions.append("UPPER(LTRIM(sql_text)) LIKE %s")
+            params.append(query_type_value + "%")
+
+        elif query_type_value == "DDL":
+            conditions.append("""
+                (
+                    UPPER(LTRIM(sql_text)) LIKE 'CREATE%'
+                    OR UPPER(LTRIM(sql_text)) LIKE 'ALTER%'
+                    OR UPPER(LTRIM(sql_text)) LIKE 'DROP%'
+                    OR UPPER(LTRIM(sql_text)) LIKE 'TRUNCATE%'
+                    OR UPPER(LTRIM(sql_text)) LIKE 'RENAME%'
+                )
+            """)
+
+        elif query_type_value == "OTHER":
+            conditions.append("""
+                NOT (
+                    UPPER(LTRIM(sql_text)) LIKE 'SELECT%'
+                    OR UPPER(LTRIM(sql_text)) LIKE 'INSERT%'
+                    OR UPPER(LTRIM(sql_text)) LIKE 'UPDATE%'
+                    OR UPPER(LTRIM(sql_text)) LIKE 'DELETE%'
+                    OR UPPER(LTRIM(sql_text)) LIKE 'CREATE%'
+                    OR UPPER(LTRIM(sql_text)) LIKE 'ALTER%'
+                    OR UPPER(LTRIM(sql_text)) LIKE 'DROP%'
+                    OR UPPER(LTRIM(sql_text)) LIKE 'TRUNCATE%'
+                    OR UPPER(LTRIM(sql_text)) LIKE 'RENAME%'
+                )
+            """)
+
+    if conditions:
+        base_query += " WHERE " + " AND ".join(conditions)
 
     # Determine sorting order based on rank_by or backward-compatible sort_slowest
-    if sort_slowest is not None:
-        if sort_slowest:
-            base_query += " ORDER BY duration_ms DESC"
-        else:
-            base_query += " ORDER BY timestamp DESC"
+    if sort_slowest:
+        base_query += " ORDER BY duration_ms DESC, queryID DESC"
+        
+    elif rank_by == QueryRankingOption.DURATION_DESC:
+        base_query += " ORDER BY duration_ms DESC, queryID DESC"
+
+    elif rank_by == QueryRankingOption.DURATION_ASC:
+        base_query += " ORDER BY duration_ms ASC, queryID DESC"
+
+    elif rank_by == QueryRankingOption.TIMESTAMP_DESC:
+        base_query += " ORDER BY timestamp DESC, queryID DESC"
+
+    elif rank_by == QueryRankingOption.TIMESTAMP_ASC:
+        base_query += " ORDER BY timestamp ASC, queryID ASC"
+
+    elif rank_by == QueryRankingOption.STATUS:
+        base_query += " ORDER BY status DESC, timestamp DESC, queryID DESC"
+
     else:
-        if rank_by == QueryRankingOption.DURATION_DESC:
-            base_query += " ORDER BY duration_ms DESC"
-        elif rank_by == QueryRankingOption.DURATION_ASC:
-            base_query += " ORDER BY duration_ms ASC"
-        elif rank_by == QueryRankingOption.TIMESTAMP_DESC:
-            base_query += " ORDER BY timestamp DESC"
-        elif rank_by == QueryRankingOption.TIMESTAMP_ASC:
-            base_query += " ORDER BY timestamp ASC"
-        elif rank_by == QueryRankingOption.STATUS:
-            base_query += " ORDER BY status DESC, duration_ms DESC"
-        else:
-            base_query += " ORDER BY duration_ms DESC"
+        base_query += " ORDER BY timestamp DESC, queryID DESC"
 
     base_query += " LIMIT %s OFFSET %s"
     params.extend([limit, offset])
 
     records = []
+    
     with DatabasePool.get_connection() as conn:
         cursor = conn.cursor(dictionary=True)
         cursor.execute(base_query, tuple(params))
@@ -157,7 +240,7 @@ def get_top_slow_queries(limit: int = Query(10, ge=1, le=100)):
     Retrieves the top slowest queries that breached the SLA threshold (>100ms).
     """
     query = """
-    SELECT queryID, sql_text, current_schema, duration_ms, status, timestamp 
+    SELECT queryID, sql_text, current_schema, duration_ms, total_elapsed_ms, status, timestamp 
     FROM QueryRuns 
     WHERE status = 'SLOW' 
     ORDER BY duration_ms DESC 
@@ -203,6 +286,22 @@ def get_summary_stats():
         "slow_percentage": pct
     }
 
+
+# NOTE: This endpoint is fully implemented but NOT yet wired to the dashboard.
+# It queries the internal performance_schema database directly — separate from the QueryRuns table that QueryShark manages
+#
+# Unlike QueryRuns (which logs individual runs intercepted by QueryShark),
+# performance_schema aggregates ALL queries ever executed on the MySQL server,
+# grouped by normalized query digest (e.g. "SELECT * FROM users WHERE id = ?").
+#
+# This makes it useful for identifying:
+#   - Query patterns that are slow in aggregate (high total latency)
+#   - Queries that run frequently with high row examination counts
+#   - Server-wide bottlenecks beyond what QueryShark intercepts
+#
+# TODO: Add a "Deep Engine Analytics" tab in dashboard.py that calls:
+#   GET /api/v1/queries/performance-schema?limit=10
+# and displays top_digests in a ranked table/chart alongside QueryRuns data.
 @router.get("/performance-schema")
 def get_performance_schema_metrics(limit: int = Query(10, ge=1, le=50)):
     """
