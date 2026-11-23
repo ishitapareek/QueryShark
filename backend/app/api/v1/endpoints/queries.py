@@ -8,11 +8,14 @@ from app.models.query_model import (
     QueryRankingOption,
     BatchQueryExecuteResponse,
     BatchScriptExecuteRequest,
+    TelemetryIngestRequest,
 )
 from app.services.interceptor import QueryInterceptorService
 from app.services.sql_parser import SQLParserService
 from app.services.performance_schema import PerformanceSchemaService
 from app.db.connection import DatabasePool
+
+from datetime import timezone
 
 router = APIRouter()
 
@@ -31,6 +34,55 @@ def execute_query(payload: QueryExecuteRequest):
         "rows_affected": rows_affected,
         "results": results,
         "error": error
+    }
+
+@router.post("/telemetry")
+def ingest_telemetry(payload: TelemetryIngestRequest):
+    """
+    Receives query telemetry from an external QueryShark SDK.
+    Does not execute the SQL statement again.
+    """
+
+    timestamp = (
+        payload.timestamp
+        .astimezone(timezone.utc)
+        .replace(tzinfo=None)
+    )
+
+    query = """
+        INSERT INTO QueryRuns (
+            sql_text,
+            current_schema,
+            duration_ms,
+            total_elapsed_ms,
+            status,
+            timestamp
+        )
+        VALUES (%s, %s, %s, %s, %s, %s)
+    """
+
+    with DatabasePool.get_connection() as conn:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            query,
+            (
+                payload.sql_text,
+                payload.current_schema,
+                payload.duration_ms,
+                payload.total_elapsed_ms,
+                payload.status,
+                timestamp
+            )
+        )
+
+        query_id = cursor.lastrowid
+        conn.commit()
+        cursor.close()
+
+    return {
+        "message": "Telemetry received successfully",
+        "queryID": query_id
     }
 
 @router.post("/upload-sql", response_model=BatchQueryExecuteResponse)

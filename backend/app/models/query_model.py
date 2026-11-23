@@ -2,6 +2,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, List, Optional
 from pydantic import BaseModel, Field, ConfigDict
+from typing import Literal
 
 class QueryRankingOption(str, Enum):
     """Supported ranking criteria for query performance analysis."""
@@ -98,3 +99,13 @@ class QuerySummaryStats(BaseModel):
     fast_queries: int
     avg_duration_ms: float
     slow_percentage: float
+
+class TelemetryIngestRequest(BaseModel):
+    """Telemetry received from an external QueryShark SDK."""
+
+    sql_text: str
+    current_schema: str = "default"
+    duration_ms: Optional[float] = None
+    total_elapsed_ms: Optional[float] = None
+    status: Literal["FAST", "SLOW", "ERROR", "UNAVAILABLE"]
+    timestamp: datetime
