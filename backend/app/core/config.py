@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     DB_POOL_NAME: str = "queryshark_pool"
     DB_POOL_SIZE: int = 20
 
+    # Data Retention
+    RETENTION_DAYS: int = 8
+    CLEANUP_BATCH_SIZE: int = 10000
+    CLEANUP_INTERVAL_SECONDS: int = 3600
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

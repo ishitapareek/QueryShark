@@ -69,6 +69,18 @@ def init_db():
                         NOT NULL
                     """)
 
+            # Add timestamp index for efficient retention cleanup.
+            cursor.execute("""
+                SHOW INDEX FROM QueryRuns
+                WHERE Key_name = 'idx_queryruns_timestamp'
+            """)
+
+            if cursor.fetchone() is None:
+                cursor.execute("""
+                    CREATE INDEX idx_queryruns_timestamp
+                    ON QueryRuns(timestamp)
+                """)
+
             try:
                 cursor.execute(ENABLE_PERFORMANCE_SCHEMA)
             except Exception as pe:
