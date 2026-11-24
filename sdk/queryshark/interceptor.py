@@ -3,34 +3,45 @@ import logging
 import time
 from datetime import datetime, timezone
 
+from .performance import PerformanceSchemaMonitor
 
 logger = logging.getLogger(__name__)
 
 
 class QuerySharkCursor:
-    """
-    Wrapper around the original MySQL cursor.
 
-    Executes queries normally while capturing query information.
-    """
-
-    def __init__(self, cursor, on_query=None):
+    def __init__(
+        self,
+        cursor,
+        on_query=None,
+        performance_monitor=None,
+        slow_threshold_ms=100.0
+    ):
         self._cursor = cursor
         self._on_query = on_query
+        self._monitor = performance_monitor
+        self._threshold = slow_threshold_ms
 
     def execute(self, operation, params=None, *args, **kwargs):
+        baseline = None
+
+        if self._monitor:
+            baseline = self._monitor.get_baseline()
+
         start_time = time.perf_counter()
         status = "UNAVAILABLE"
 
         try:
             if params is None:
-                return self._cursor.execute(
+                result = self._cursor.execute(
                     operation, *args, **kwargs
                 )
+            else:
+                result = self._cursor.execute(
+                    operation, params, *args, **kwargs
+                )
 
-            return self._cursor.execute(
-                operation, params, *args, **kwargs
-            )
+            return result
 
         except Exception:
             status = "ERROR"
@@ -42,19 +53,26 @@ class QuerySharkCursor:
             ) * 1000
 
             self._capture(
-                operation=operation,
-                elapsed_ms=elapsed_ms,
-                status=status
+                operation,
+                elapsed_ms,
+                status,
+                baseline
             )
 
     def executemany(self, operation, seq_params):
+        baseline = None
+
+        if self._monitor:
+            baseline = self._monitor.get_baseline()
+
         start_time = time.perf_counter()
         status = "UNAVAILABLE"
 
         try:
-            return self._cursor.executemany(
+            result = self._cursor.executemany(
                 operation, seq_params
             )
+            return result
 
         except Exception:
             status = "ERROR"
@@ -66,18 +84,42 @@ class QuerySharkCursor:
             ) * 1000
 
             self._capture(
-                operation=operation,
-                elapsed_ms=elapsed_ms,
-                status=status
+                operation,
+                elapsed_ms,
+                status,
+                baseline
             )
 
-    def _capture(self, operation, elapsed_ms, status):
+    def _capture(
+        self,
+        operation,
+        elapsed_ms,
+        status,
+        baseline
+    ):
         if self._on_query is None:
             return
 
+        duration_ms = None
+
+        if status != "ERROR" and self._monitor:
+            duration_ms = (
+                self._monitor.get_statement_duration_ms(
+                    baseline
+                )
+            )
+
+        if status != "ERROR":
+            if duration_ms is None:
+                status = "UNAVAILABLE"
+            elif duration_ms > self._threshold:
+                status = "SLOW"
+            else:
+                status = "FAST"
+
         record = {
             "sql_text": str(operation),
-            "duration_ms": None,
+            "duration_ms": duration_ms,
             "total_elapsed_ms": elapsed_ms,
             "status": status,
             "timestamp": datetime.now(
@@ -87,10 +129,10 @@ class QuerySharkCursor:
 
         try:
             self._on_query(record)
+
         except Exception:
-            # Monitoring failures must not break the application.
             logger.exception(
-                "QueryShark telemetry capture failed"
+                "QueryShark telemetry capture failed."
             )
 
     def __getattr__(self, name):
@@ -107,13 +149,18 @@ class QuerySharkCursor:
 
 
 class QuerySharkConnection:
-    """
-    Wrapper around a MySQL connection.
-    """
 
-    def __init__(self, connection, on_query=None):
+    def __init__(
+        self,
+        connection,
+        on_query=None,
+        performance_monitor=None,
+        slow_threshold_ms=100.0
+    ):
         self._connection = connection
         self._on_query = on_query
+        self._monitor = performance_monitor
+        self._threshold = slow_threshold_ms
 
     def cursor(self, *args, **kwargs):
         original_cursor = self._connection.cursor(
@@ -122,7 +169,9 @@ class QuerySharkConnection:
 
         return QuerySharkCursor(
             original_cursor,
-            self._on_query
+            self._on_query,
+            self._monitor,
+            self._threshold
         )
 
     def __getattr__(self, name):
@@ -138,14 +187,15 @@ class QuerySharkConnection:
         )
 
 
-def instrument_connection(connection, on_query=None):
-    """
-    Instrument an existing mysql.connector connection.
-
-    Returns a wrapped connection.
-    """
-
+def instrument_connection(
+    connection,
+    on_query=None,
+    performance_monitor=None,
+    slow_threshold_ms=100.0
+):
     return QuerySharkConnection(
         connection,
-        on_query
+        on_query,
+        performance_monitor,
+        slow_threshold_ms
     )
