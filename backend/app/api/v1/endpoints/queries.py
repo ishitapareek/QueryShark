@@ -17,6 +17,8 @@ from app.db.connection import DatabasePool
 
 from datetime import timezone
 
+from app.models.query_model import TelemetryBatchIngestRequest
+
 router = APIRouter()
 
 @router.post("/execute", response_model=QueryExecuteResponse)
@@ -83,6 +85,90 @@ def ingest_telemetry(payload: TelemetryIngestRequest):
     return {
         "message": "Telemetry received successfully",
         "queryID": query_id
+    }
+
+
+@router.post("/telemetry/batch")
+def ingest_telemetry_batch(payload: TelemetryBatchIngestRequest):
+    """
+    Receives multiple telemetry records in one request.
+    Uses event IDs to prevent duplicate inserts during retries.
+    """
+
+    if not payload.records:
+        raise HTTPException(
+            status_code=400,
+            detail="At least one telemetry record is required."
+        )
+
+    if len(payload.records) > 500:
+        raise HTTPException(
+            status_code=400,
+            detail="Maximum batch size is 500 records."
+        )
+
+    insert_query = """
+        INSERT IGNORE INTO QueryRuns (
+            telemetry_event_id,
+            sql_text,
+            current_schema,
+            duration_ms,
+            total_elapsed_ms,
+            status,
+            timestamp
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+    """
+
+    values = []
+
+    for record in payload.records:
+
+        if not record.event_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Every record must have an event_id."
+            )
+
+        timestamp = record.timestamp
+
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=timezone.utc)
+        else:
+            timestamp = timestamp.astimezone(timezone.utc)
+
+        timestamp = timestamp.replace(tzinfo=None)
+
+        values.append((
+            record.event_id,
+            record.sql_text,
+            record.current_schema,
+            record.duration_ms,
+            record.total_elapsed_ms,
+            record.status,
+            timestamp
+        ))
+
+    with DatabasePool.get_connection() as conn:
+        cursor = conn.cursor()
+
+        try:
+            cursor.executemany(insert_query, values)
+            conn.commit()
+
+        except Exception:
+            conn.rollback()
+            raise
+
+        finally:
+            cursor.close()
+
+    return {
+        "message": "Telemetry batch processed successfully",
+        "processed_count": len(values),
+        "event_ids": [
+            record.event_id for record in payload.records
+        ]
     }
 
 @router.post("/upload-sql", response_model=BatchQueryExecuteResponse)
