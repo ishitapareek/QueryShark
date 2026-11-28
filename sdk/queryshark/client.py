@@ -1,5 +1,8 @@
+
 import logging
+import queue
 import threading
+import time
 import uuid
 
 import requests
@@ -18,10 +21,18 @@ class QuerySharkClient:
         max_retries=3,
         retry_backoff=1,
         request_timeout=10,
-        db_path=None
+        db_path=None,
+        buffer_size=5000,
+        flush_interval=0.05
     ):
         if not 1 <= batch_size <= 500:
             raise ValueError("batch_size must be between 1 and 500.")
+
+        if buffer_size <= 0:
+            raise ValueError("buffer_size must be greater than 0.")
+
+        if flush_interval <= 0:
+            raise ValueError("flush_interval must be greater than 0.")
 
         self.telemetry_url = (
             agent_url.rstrip("/") + "/api/v1/queries/telemetry/batch"
@@ -36,57 +47,157 @@ class QuerySharkClient:
         self.max_retries = max_retries
         self.retry_backoff = retry_backoff
         self.request_timeout = request_timeout
+        self.flush_interval = flush_interval
+
+        # Incoming records wait here briefly before batch persistence.
+        self._buffer = queue.Queue(maxsize=buffer_size)
 
         self._closed = False
         self._lock = threading.Lock()
-        self._stop_event = threading.Event()
 
+        self._writer_stop = threading.Event()
+        self._delivery_stop = threading.Event()
+
+        # Thread 1: persist incoming records to SQLite in batches.
+        self._writer = threading.Thread(
+            target=self._write_buffer,
+            daemon=True,
+            name="QuerySharkStorageWriter"
+        )
+
+        # Thread 2: deliver persisted SQLite batches to the backend.
         self._worker = threading.Thread(
             target=self._process_queue,
             daemon=True,
             name="QuerySharkTelemetryWorker"
         )
+
+        self._writer.start()
         self._worker.start()
 
     def send_telemetry(self, record):
+        """
+        Add one record to the bounded in-memory buffer.
+
+        Returns False if the client is closed or the buffer is full.
+        """
+
         with self._lock:
             if self._closed:
                 logger.warning("Client is closed. Telemetry rejected.")
                 return False
 
             try:
-                # Generate the ID once, before saving to SQLite.
-                # It remains the same across retries and restarts.
-                record = dict(record)
-                record.setdefault("event_id", str(uuid.uuid4()))
+                item = dict(record)
+                item.setdefault("event_id", str(uuid.uuid4()))
 
-                return self.storage.enqueue(record)
+                self._buffer.put_nowait(item)
+                return True
+
+            except queue.Full:
+                logger.warning(
+                    "QueryShark memory buffer is full. "
+                    "New telemetry record rejected."
+                )
+                return False
 
             except Exception:
-                logger.exception("Could not persist telemetry.")
+                logger.exception("Could not buffer telemetry.")
                 return False
 
     def send_telemetry_batch(self, records):
-        """Persist multiple records in one SQLite transaction."""
+        """
+        Add multiple records to the in-memory buffer.
+
+        Returns the number of records accepted into the buffer.
+        """
+
+        accepted = 0
 
         with self._lock:
             if self._closed:
                 logger.warning("Client is closed. Telemetry rejected.")
                 return 0
 
-            try:
-                prepared_records = []
-
-                for record in records:
+            for record in records:
+                try:
                     item = dict(record)
                     item.setdefault("event_id", str(uuid.uuid4()))
-                    prepared_records.append(item)
 
-                return self.storage.enqueue_many(prepared_records)
+                    self._buffer.put_nowait(item)
+                    accepted += 1
+
+                except queue.Full:
+                    logger.warning(
+                        "Memory buffer full. Accepted %s of %s records.",
+                        accepted,
+                        len(records)
+                    )
+                    break
+
+                except Exception:
+                    logger.exception("Could not buffer telemetry record.")
+                    break
+
+        return accepted
+
+    def _write_buffer(self):
+        """
+        Collect individual records and persist them to SQLite in batches.
+
+        Records are removed from the in-memory queue only after SQLite
+        confirms that they have been stored.
+        """
+
+        pending = []
+
+        while not self._writer_stop.is_set() or not self._buffer.empty():
+
+            if not pending:
+                try:
+                    first = self._buffer.get(timeout=self.flush_interval)
+                    pending.append(first)
+                except queue.Empty:
+                    continue
+
+            # Collect more records until the batch is full or the
+            # flush interval expires.
+            deadline = time.monotonic() + self.flush_interval
+
+            while len(pending) < self.batch_size:
+                remaining = deadline - time.monotonic()
+
+                if remaining <= 0:
+                    break
+
+                try:
+                    item = self._buffer.get(timeout=remaining)
+                    pending.append(item)
+                except queue.Empty:
+                    break
+
+            try:
+                stored = self.storage.enqueue_many(pending)
+
+                if stored > 0:
+                    # Only acknowledge records confirmed in SQLite.
+                    for _ in range(stored):
+                        self._buffer.task_done()
+
+                    pending = pending[stored:]
+
+                if pending:
+                    # SQLite may be at capacity. The delivery worker
+                    # should free space; retain these records meanwhile.
+                    time.sleep(0.1)
 
             except Exception:
-                logger.exception("Could not persist telemetry batch.")
-                return 0
+                logger.exception(
+                    "Could not persist telemetry batch. Retrying."
+                )
+                time.sleep(0.5)
+
+        logger.info("QueryShark storage writer stopped.")
 
     def _send_batch_with_retries(self, records):
         local_ids = [item["id"] for item in records]
@@ -100,7 +211,7 @@ class QuerySharkClient:
         }
 
         for attempt in range(self.max_retries + 1):
-            if self._stop_event.is_set():
+            if self._delivery_stop.is_set():
                 return False
 
             try:
@@ -115,8 +226,6 @@ class QuerySharkClient:
                 result = response.json()
                 received_event_ids = set(result.get("event_ids", []))
 
-                # Only delete local records if the backend confirms
-                # receipt of every event in this batch.
                 if received_event_ids != expected_event_ids:
                     raise ValueError(
                         "Backend response did not confirm every event ID."
@@ -155,46 +264,82 @@ class QuerySharkClient:
                 error_message
             )
 
-            if self._stop_event.wait(delay):
+            if self._delivery_stop.wait(delay):
                 return False
 
         return False
 
     def _process_queue(self):
-        while not self._stop_event.is_set():
+        while not self._delivery_stop.is_set():
             try:
                 records = self.storage.get_batch(
                     batch_size=self.batch_size
                 )
 
                 if not records:
-                    self._stop_event.wait(0.5)
+                    self._delivery_stop.wait(0.1)
                     continue
 
                 delivered = self._send_batch_with_retries(records)
 
-                # If delivery failed, leave the records in SQLite.
-                # Avoid repeatedly retrying the same batch immediately.
                 if not delivered:
-                    self._stop_event.wait(2)
+                    self._delivery_stop.wait(2)
 
             except Exception:
                 logger.exception("Error while processing telemetry queue.")
-                self._stop_event.wait(2)
+                self._delivery_stop.wait(2)
+
+        logger.info("QueryShark delivery worker stopped.")
 
     def pending_count(self):
+        """Return records already persisted in SQLite."""
         return self.storage.pending_count()
 
-    def close(self):
+    def buffered_count(self):
+        """Return records still waiting for SQLite persistence."""
+        return self._buffer.qsize()
+
+    def close(self, timeout=30):
+        """
+        Stop accepting telemetry, flush the memory buffer to SQLite,
+        and allow the delivery worker time to deliver persisted records.
+
+        Any records still pending in SQLite remain available for the
+        next client run.
+        """
+
         with self._lock:
             if self._closed:
                 return
+
             self._closed = True
 
-        self._stop_event.set()
-        self._worker.join()
+        # First stop the writer after it has drained its memory buffer.
+        self._writer_stop.set()
+        self._writer.join(timeout=timeout)
+
+        if self._writer.is_alive():
+            logger.error(
+                "Storage writer did not finish within %s seconds. "
+                "%s records may still be buffered in memory.",
+                timeout,
+                self.buffered_count()
+            )
+
+        # Then give the delivery worker time to empty SQLite.
+        deadline = time.monotonic() + timeout
+
+        while time.monotonic() < deadline:
+            if not self._writer.is_alive() and self.pending_count() == 0:
+                break
+
+            time.sleep(0.1)
+
+        self._delivery_stop.set()
+        self._worker.join(timeout=5)
 
         logger.info(
-            "QueryShark stopped. %s records remain pending.",
-            self.pending_count()
+            "QueryShark stopped. SQLite pending: %s; memory buffered: %s",
+            self.pending_count(),
+            self.buffered_count()
         )

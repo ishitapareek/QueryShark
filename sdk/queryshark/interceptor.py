@@ -23,11 +23,7 @@ class QuerySharkCursor:
         self._threshold = slow_threshold_ms
 
     def execute(self, operation, params=None, *args, **kwargs):
-        baseline = None
-
-        if self._monitor:
-            baseline = self._monitor.get_baseline()
-
+    
         start_time = time.perf_counter()
         status = "UNAVAILABLE"
 
@@ -56,14 +52,9 @@ class QuerySharkCursor:
                 operation,
                 elapsed_ms,
                 status,
-                baseline
             )
 
     def executemany(self, operation, seq_params):
-        baseline = None
-
-        if self._monitor:
-            baseline = self._monitor.get_baseline()
 
         start_time = time.perf_counter()
         status = "UNAVAILABLE"
@@ -87,7 +78,6 @@ class QuerySharkCursor:
                 operation,
                 elapsed_ms,
                 status,
-                baseline
             )
 
     def _capture(
@@ -95,7 +85,6 @@ class QuerySharkCursor:
         operation,
         elapsed_ms,
         status,
-        baseline
     ):
         if self._on_query is None:
             return
@@ -103,11 +92,7 @@ class QuerySharkCursor:
         duration_ms = None
 
         if status != "ERROR" and self._monitor:
-            duration_ms = (
-                self._monitor.get_statement_duration_ms(
-                    baseline
-                )
-            )
+            duration_ms = self._monitor.get_statement_duration_ms()
 
         if status != "ERROR":
             if duration_ms is None:
@@ -122,18 +107,14 @@ class QuerySharkCursor:
             "duration_ms": duration_ms,
             "total_elapsed_ms": elapsed_ms,
             "status": status,
-            "timestamp": datetime.now(
-                timezone.utc
-            ).isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
 
         try:
             self._on_query(record)
 
         except Exception:
-            logger.exception(
-                "QueryShark telemetry capture failed."
-            )
+            logger.exception("QueryShark telemetry capture failed.")
 
     def __getattr__(self, name):
         return getattr(self._cursor, name)

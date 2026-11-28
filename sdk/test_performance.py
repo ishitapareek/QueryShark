@@ -1,45 +1,89 @@
-import mysql.connector
 
-from queryshark.performance import PerformanceSchemaMonitor
+import logging
+import threading
+
+logger = logging.getLogger(__name__)
 
 
-app_connection = mysql.connector.connect(
-    host="localhost",
-    user="root",
-    password="admin",
-    database="queryshark"
-)
+class PerformanceSchemaMonitor:
+    """
+    Retrieves server-side SQL execution time from MySQL Performance Schema.
 
-monitor_connection = mysql.connector.connect(
-    host="localhost",
-    user="root",
-    password="admin",
-    database="queryshark"
-)
+    Each monitor instance belongs to one application connection.
+    Reuses a monitoring cursor to reduce per-query overhead.
+    """
 
-monitor = PerformanceSchemaMonitor(
-    monitoring_connection=monitor_connection,
-    application_connection_id=app_connection.connection_id
-)
+    def __init__(self, monitoring_connection, application_connection_id):
+        self.monitoring_connection = monitoring_connection
+        self.application_connection_id = application_connection_id
+        self.thread_id = None
 
-try:
-    thread_id = monitor.get_thread_id()
+        self._cursor = monitoring_connection.cursor()
+        self._lock = threading.RLock()
 
-    print("Application Thread ID:", thread_id)
+    def get_thread_id(self):
+        with self._lock:
+            if self.thread_id is not None:
+                return self.thread_id
 
-    baseline = monitor.get_baseline()
+            try:
+                self._cursor.execute("""
+                    SELECT THREAD_ID
+                    FROM performance_schema.threads
+                    WHERE PROCESSLIST_ID = %s
+                """, (self.application_connection_id,))
 
-    print("Baseline Event ID:", baseline)
+                result = self._cursor.fetchone()
 
-    cursor = app_connection.cursor()
-    cursor.execute("SELECT SLEEP(0.2)")
-    cursor.fetchone()
-    cursor.close()
+                if result:
+                    self.thread_id = result[0]
 
-    duration = monitor.get_statement_duration_ms(baseline)
+                return self.thread_id
 
-    print("Server-side execution time:", duration, "ms")
+            except Exception:
+                logger.exception("Could not retrieve MySQL thread ID.")
+                return None
 
-finally:
-    app_connection.close()
-    monitor_connection.close()
+    def get_statement_duration_ms(self):
+        """
+        Retrieves the latest completed statement duration.
+
+        TIMER_WAIT is in picoseconds.
+        Conversion to milliseconds: divide by 1,000,000,000.
+        """
+
+        with self._lock:
+            try:
+                if self.thread_id is None:
+                    self.get_thread_id()
+
+                if self.thread_id is None:
+                    return None
+
+                self._cursor.execute("""
+                    SELECT TIMER_WAIT
+                    FROM performance_schema.events_statements_history
+                    WHERE THREAD_ID = %s
+                      AND TIMER_WAIT IS NOT NULL
+                    ORDER BY EVENT_ID DESC
+                    LIMIT 1
+                """, (self.thread_id,))
+
+                result = self._cursor.fetchone()
+
+                if not result or result[0] is None:
+                    return None
+
+                return float(result[0]) / 1_000_000_000
+
+            except Exception:
+                logger.exception(
+                    "Could not retrieve statement execution time."
+                )
+                return None
+
+    def close(self):
+        with self._lock:
+            if self._cursor is not None:
+                self._cursor.close()
+                self._cursor = None
